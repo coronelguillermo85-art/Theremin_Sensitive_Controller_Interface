@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sensitive Theremin MIDI Controller</title>
+<meta name="description" content="Sensitive Theremin MIDI Controller: theremin ultrasónico con Arduino Nano que toca sonidos propios o cualquier VST.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎛️</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;800&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #e6efff;
+    --panel: #f6f9ff;
+    --ink: #0a1f4f;
+    --ink-soft: #4a639c;
+    --line: #c4d6fb;
+    --accent: #1f6bff;
+    --sky: #2ad4ff;
+    --butter: #ffe27a;
+    --row: #d9e6ff;
+    --row-on: #1f6bff;
+    --shadow: 0 18px 50px -24px rgba(20, 70, 200, .40);
+    --display: "Syne", system-ui, sans-serif;
+    --body: "Instrument Sans", system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #07122e;
+      --panel: #0f1d47;
+      --ink: #eaf1ff;
+      --ink-soft: #8fb0f0;
+      --line: #233c7d;
+      --row: #182c63;
+      --accent: #4d8dff;
+      --row-on: #3a7bff;
+      --shadow: 0 18px 50px -24px rgba(0, 0, 0, .7);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--body);
+    line-height: 1.5;
+    min-height: 100vh;
+    padding: env(safe-area-inset-top, 0) 0 env(safe-area-inset-bottom, 0);
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 28px 20px 48px; }
+
+  header {
+    display: flex; flex-wrap: wrap; gap: 16px 24px;
+    align-items: end; justify-content: space-between;
+    margin-bottom: 26px;
+  }
+  h1 {
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: clamp(2rem, 5.2vw, 3.6rem);
+    line-height: .95;
+    letter-spacing: -.03em;
+    margin: 0;
+  }
+  .sub { color: var(--ink-soft); margin: 8px 0 0; max-width: 46ch; }
+
+  .status {
+    display: inline-flex; align-items: center; gap: 10px;
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 999px; padding: 8px 16px; font-weight: 500;
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #9a98c9; }
+  .status[data-s="on"] .dot { background: #1fd18a; box-shadow: 0 0 0 4px rgba(31,209,138,.25); }
+  .status[data-s="wait"] .dot { background: var(--butter); }
+
+  .grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 20px; }
+  @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 22px;
+    box-shadow: var(--shadow);
+  }
+
+  /* ---- Stage ---- */
+  .stage { padding: 20px; position: relative; overflow: hidden; }
+  .stage-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
+  .big-note {
+    font-family: var(--display); font-weight: 800;
+    font-size: clamp(4rem, 12vw, 7.5rem); line-height: .85; letter-spacing: -.04em;
+    min-width: 2.2ch; transition: color .12s;
+  }
+  .big-note.off { color: var(--line); }
+  .big-note small { font-size: .35em; letter-spacing: 0; font-weight: 600; color: var(--ink-soft); margin-left: .15em; }
+  .readout { text-align: right; color: var(--ink-soft); font-size: .92rem; }
+  .readout b { display: block; color: var(--ink); font-size: 1.25rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  .ladder { display: flex; flex-direction: column; gap: 5px; position: relative; touch-action: none; user-select: none; }
+  .ladder-axis {
+    display: flex; justify-content: space-between; color: var(--ink-soft);
+    font-size: .85rem; margin: 2px 2px 8px;
+  }
+  .rung {
+    height: 34px; border-radius: 10px; background: var(--row);
+    position: relative; display: flex; align-items: center; justify-content: space-between;
+    padding: 0 14px; cursor: pointer; border: 0; color: var(--ink-soft);
+    font: 600 .86rem var(--body); font-variant-numeric: tabular-nums;
+    transition: background .1s, color .1s, transform .1s;
+    overflow: hidden;
+  }
+  .rung::before {
+    content: ""; position: absolute; inset: 0; background: var(--row-on);
+    transform: scaleX(0); transform-origin: left; transition: transform .18s cubic-bezier(.2,.8,.2,1);
+  }
+  .rung span { position: relative; z-index: 1; }
+  .rung.on { color: #fff; transform: translateX(6px); }
+  .rung.on::before { transform: scaleX(1); }
+  .rung.root { box-shadow: inset 3px 0 0 var(--sky); }
+  .rung:focus-visible { outline: 3px solid var(--sky); outline-offset: 2px; }
+
+  /* ---- Side ---- */
+  .side { display: flex; flex-direction: column; gap: 20px; }
+  .block { padding: 20px; }
+  h2 { font-family: var(--display); font-size: 1.15rem; margin: 0 0 12px; letter-spacing: -.01em; }
+  .hint { color: var(--ink-soft); font-size: .9rem; margin: 8px 0 0; }
+
+  .btn {
+    appearance: none; border: 0; cursor: pointer;
+    font: 600 .95rem var(--body); color: #fff; background: var(--ink);
+    padding: 11px 18px; border-radius: 12px; transition: transform .08s, opacity .15s;
+  }
+  [data-theme] .btn, .btn { }
+  @media (prefers-color-scheme: dark) { .btn { color: #07122e; } }
+  .btn:hover { opacity: .9; }
+  .btn:active { transform: translateY(1px); }
+  .btn.accent { background: var(--accent); color: #fff; }
+  .btn.ghost { background: transparent; color: var(--ink); border: 1.5px solid var(--line); }
+  .btn:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--sky); outline-offset: 2px; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+
+  select {
+    font: 500 .95rem var(--body); color: var(--ink); background: var(--bg);
+    border: 1.5px solid var(--line); border-radius: 10px; padding: 9px 10px; min-width: 0; max-width: 100%;
+  }
+  .field { display: grid; grid-template-columns: 90px 1fr 54px; gap: 10px; align-items: center; margin: 10px 0; font-size: .93rem; }
+  .field output { text-align: right; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+
+  .seg { display: inline-flex; background: var(--bg); border: 1.5px solid var(--line); border-radius: 12px; padding: 3px; gap: 2px; }
+  .seg button {
+    border: 0; background: transparent; color: var(--ink-soft); font: 600 .88rem var(--body);
+    padding: 7px 12px; border-radius: 9px; cursor: pointer;
+  }
+  .seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+  .seg button:focus-visible { outline: 3px solid var(--sky); }
+
+  canvas#scope { width: 100%; height: 90px; display: block; border-radius: 12px; background: var(--bg); border: 1px solid var(--line); }
+
+  .log { list-style: none; margin: 0; padding: 0; font-variant-numeric: tabular-nums; font-size: .88rem; color: var(--ink-soft); min-height: 7.2em; }
+  .log li { padding: 3px 0; border-bottom: 1px dashed var(--line); display: flex; justify-content: space-between; }
+  .log li:first-child { color: var(--ink); }
+
+  .switch { display: flex; gap: 12px; align-items: flex-start; cursor: pointer; font-weight: 600; }
+  .switch input { width: 20px; height: 20px; margin-top: 2px; accent-color: var(--accent); flex: none; }
+  .switch small { display: block; font-weight: 400; color: var(--ink-soft); font-size: .9rem; }
+  .vst-state { margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: var(--bg); border: 1px solid var(--line); font-size: .92rem; }
+  .vst-state[data-ok="1"] { border-color: var(--accent); }
+  .msg { margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: rgba(31, 107, 255, .14); color: var(--ink); font-size: .92rem; }
+  .msg[hidden] { display: none; }
+
+  details summary { cursor: pointer; font-weight: 600; }
+  details p, details li { color: var(--ink-soft); font-size: .93rem; }
+  footer { margin-top: 28px; color: var(--ink-soft); font-size: .88rem; text-align: center; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Sensitive Theremin<br>MIDI Controller</h1>
+      <p class="sub">Acercá la mano al sensor para subir la nota, alejala para bajarla. Sacala y la nota se corta.</p>
+    </div>
+    <div class="status" id="status" data-s="off" role="status" aria-live="polite">
+      <span class="dot"></span><span id="statusText">Sin conexión</span>
+    </div>
+  </header>
+
+  <div class="grid">
+    <!-- Escenario -->
+    <section class="card stage" aria-label="Escala">
+      <div class="stage-top">
+        <div class="big-note off" id="bigNote">–</div>
+        <div class="readout">
+          <span>Nota MIDI</span><b id="midiNum">–</b>
+          <span>Frecuencia</span><b id="freqNum">–</b>
+        </div>
+      </div>
+      <div class="ladder-axis"><span>Mano cerca · agudo</span><span>También podés tocar acá</span></div>
+      <div class="ladder" id="ladder" role="group" aria-label="Escala pentatónica"></div>
+      <div class="ladder-axis" style="margin-top:8px"><span>Mano lejos · grave</span><span></span></div>
+    </section>
+
+    <!-- Controles -->
+    <div class="side">
+      <section class="card block">
+        <h2>Conexión</h2>
+        <div class="row">
+          <button class="btn accent" id="btnSerial">Conectar Arduino (USB)</button>
+          <button class="btn ghost" id="btnSerialOff" disabled>Desconectar</button>
+        </div>
+        <p class="hint">Se conecta directo al puerto serie a 115200. No hace falta Hairless; cerralo y también el monitor serie del IDE para liberar el puerto.</p>
+
+        <div class="row" style="margin-top:16px">
+          <label for="midiIn" style="font-weight:600">Entrada MIDI</label>
+          <select id="midiIn" aria-label="Entrada MIDI"><option value="">Ninguna</option></select>
+        </div>
+        <p class="hint">Si preferís seguir con Hairless + loopMIDI, elegí acá el puerto virtual.</p>
+
+
+        <div class="msg" id="msg" hidden></div>
+      </section>
+
+      <section class="card block" id="vstCard">
+        <h2>Salida a VST / DAW</h2>
+        <label class="switch">
+          <input type="checkbox" id="vstMode">
+          <span>Modo VST<small>Silencia el sonido de esta página y manda las notas solo al puerto de salida, para que suene tu VST.</small></span>
+        </label>
+        <div class="row" style="margin-top:14px">
+          <label for="midiOut" style="font-weight:600">Puerto</label>
+          <select id="midiOut" aria-label="Puerto de salida MIDI"><option value="">Ninguno</option></select>
+          <label for="midiCh" style="font-weight:600">Canal</label>
+          <select id="midiCh" aria-label="Canal MIDI"></select>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <button class="btn ghost" id="btnTest">Enviar nota de prueba</button>
+        </div>
+        <div class="vst-state" id="vstState" role="status" aria-live="polite" data-ok="0"></div>
+        <details style="margin-top:12px">
+          <summary>Cómo hacerlo sonar con un VST</summary>
+          <p>Un navegador no puede cargar plugins VST directamente. Lo que hace esta página es mandar MIDI a tu DAW, que sí los carga.</p>
+          <ol>
+            <li>En Windows instalá <strong>loopMIDI</strong> y creá un puerto, por ejemplo «Sensitive Theremin». En Mac usá el bus IAC.</li>
+            <li>Acá elegí ese puerto en <em>Puerto</em>.</li>
+            <li>En tu DAW (Reaper, Ableton, FL Studio, Cubase…) activá ese puerto como entrada MIDI y creá una pista con el VST que quieras, armada para grabar.</li>
+            <li>Activá <em>Modo VST</em> y movés la mano: tenés que ver entrar las notas en el DAW. Probá primero con <em>Enviar nota de prueba</em>.</li>
+          </ol>
+          <p>No elijas el mismo puerto como entrada y como salida, porque se genera un lazo de notas repetidas.</p>
+        </details>
+      </section>
+
+      <section class="card block">
+        <h2>Sonido</h2>
+        <div class="row" style="margin-bottom:6px">
+          <div class="seg" id="wave" role="group" aria-label="Forma de onda">
+            <button data-w="sine" aria-pressed="true">Seno</button>
+            <button data-w="triangle" aria-pressed="false">Triángulo</button>
+            <button data-w="sawtooth" aria-pressed="false">Sierra</button>
+            <button data-w="square" aria-pressed="false">Cuadrada</button>
+          </div>
+          <button class="btn ghost" id="btnMute" aria-pressed="false">Silenciar</button>
+        </div>
+        <div class="field"><label for="vol">Volumen</label><input id="vol" type="range" min="0" max="100" value="60"><output id="volO">60</output></div>
+        <div class="field"><label for="glide">Glide</label><input id="glide" type="range" min="0" max="400" value="90"><output id="glideO">90 ms</output></div>
+        <div class="field"><label for="tone">Brillo</label><input id="tone" type="range" min="0" max="100" value="70"><output id="toneO">70</output></div>
+        <div class="field"><label for="echo">Eco</label><input id="echo" type="range" min="0" max="100" value="25"><output id="echoO">25</output></div>
+        <canvas id="scope" width="600" height="180" aria-label="Forma de onda en vivo"></canvas>
+      </section>
+
+      <section class="card block">
+        <h2>Últimos mensajes</h2>
+        <ul class="log" id="log"><li><span>Esperando datos…</span><span></span></li></ul>
+      </section>
+    </div>
+  </div>
+
+  <section class="card block" style="margin-top:20px">
+    <details>
+      <summary>Cómo usarlo</summary>
+      <ol>
+        <li>Abrí esta página en Chrome o Edge (Firefox y Safari no soportan Web Serial).</li>
+        <li>Conectá el Arduino Nano y tocá <em>Conectar Arduino (USB)</em>. La placa se reinicia: no pongas la mano frente al sensor durante unos 2 segundos mientras calibra.</li>
+        <li>Mové la mano: cerca de ~5 cm es la nota más aguda y a ~6 cm del fondo empieza la más grave.</li>
+        <li>Con el eco y el glide al gusto, se siente más a theremin de verdad.</li>
+      </ol>
+    </details>
+  </section>
+
+  <footer>Sensitive Lab · Sensitive Theremin MIDI Controller</footer>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  // Misma escala que el sketch del Arduino (índice 0 = lejos/grave, 14 = cerca/agudo)
+  const ESCALA = [48, 50, 52, 55, 57, 60, 62, 64, 67, 69, 72, 74, 76, 79, 81];
+  const NOMBRES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+  const nombre = n => NOMBRES[n % 12] + (Math.floor(n / 12) - 1);
+  const frecuencia = n => 440 * Math.pow(2, (n - 69) / 12);
+
+  const $ = id => document.getElementById(id);
+
+  /* ---------- UI: escalera ---------- */
+  const ladder = $('ladder');
+  const rungs = new Map();
+  [...ESCALA].reverse().forEach(n => {
+    const b = document.createElement('button');
+    b.className = 'rung' + (n % 12 === 0 ? ' root' : '');
+    b.dataset.note = n;
+    b.innerHTML = `<span>${nombre(n)}</span><span>${n}</span>`;
+    b.setAttribute('aria-label', `Tocar ${nombre(n)}`);
+    ladder.appendChild(b);
+    rungs.set(n, b);
+  });
+
+  function setActiva(n) {
+    rungs.forEach((el, k) => el.classList.toggle('on', k === n));
+    const big = $('bigNote');
+    if (n == null) {
+      big.classList.add('off');
+      big.textContent = '–';
+      $('midiNum').textContent = '–';
+      $('freqNum').textContent = '–';
+    } else {
+      big.classList.remove('off');
+      const nm = nombre(n);
+      const m = nm.match(/^([A-G]#?)(-?\d+)$/);
+      big.innerHTML = `${m[1]}<small>${m[2]}</small>`;
+      $('midiNum').textContent = n;
+      $('freqNum').textContent = frecuencia(n).toFixed(1) + ' Hz';
+    }
+  }
+
+  function estado(tipo, texto) {
+    const s = $('status');
+    s.dataset.s = tipo;
+    $('statusText').textContent = texto;
+  }
+
+  function mensaje(texto) {
+    const m = $('msg');
+    if (!texto) { m.hidden = true; return; }
+    m.textContent = texto;
+    m.hidden = false;
+  }
+
+  const logEl = $('log');
+  let logPrimero = true;
+  function log(texto, fuente) {
+    if (logPrimero) { logEl.innerHTML = ''; logPrimero = false; }
+    const li = document.createElement('li');
+    li.innerHTML = `<span>${texto}</span><span>${fuente}</span>`;
+    logEl.prepend(li);
+    while (logEl.children.length > 6) logEl.lastChild.remove();
+  }
+
+  /* ---------- Audio: sintetizador monofónico ---------- */
+  let ctx, osc, env, filtro, master, delay, fb, wet, analyser;
+  let onda = 'sine';
+  let silenciado = false;
+  let sonando = null;
+  let releaseTimer = null;
+
+  function iniciarAudio() {
+    if (ctx) { if (ctx.state === 'suspended') ctx.resume(); return; }
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    osc = ctx.createOscillator();
+    osc.type = onda;
+    env = ctx.createGain(); env.gain.value = 0;
+    filtro = ctx.createBiquadFilter(); filtro.type = 'lowpass';
+    master = ctx.createGain();
+    delay = ctx.createDelay(1.0); delay.delayTime.value = 0.28;
+    fb = ctx.createGain(); fb.gain.value = 0.38;
+    wet = ctx.createGain();
+    analyser = ctx.createAnalyser(); analyser.fftSize = 1024;
+
+    osc.connect(env); env.connect(filtro); filtro.connect(master);
+    filtro.connect(delay); delay.connect(fb); fb.connect(delay); delay.connect(wet); wet.connect(master);
+    master.connect(analyser); analyser.connect(ctx.destination);
+    osc.start();
+    aplicarAjustes();
+    dibujar();
+  }
+
+  function aplicarAjustes() {
+    if (!ctx) return;
+    const v = +$('vol').value / 100;
+    master.gain.setTargetAtTime(silenciado ? 0 : v * 0.5, ctx.currentTime, 0.02);
+    const t = +$('tone').value / 100;
+    filtro.frequency.setTargetAtTime(400 * Math.pow(30, t), ctx.currentTime, 0.02);
+    wet.gain.setTargetAtTime((+$('echo').value / 100) * 0.7, ctx.currentTime, 0.05);
+  }
+
+  function sinteNotaOn(n, vel) {
+    if (!ctx || silenciado) return;
+    clearTimeout(releaseTimer);
+    const now = ctx.currentTime;
+    const f = frecuencia(n);
+    const glide = +$('glide').value / 1000;
+    if (sonando == null || glide === 0) osc.frequency.setValueAtTime(f, now);
+    else osc.frequency.setTargetAtTime(f, now, glide / 3);
+    const nivel = 0.25 + 0.75 * (vel / 127);
+    env.gain.cancelScheduledValues(now);
+    env.gain.setTargetAtTime(nivel, now, 0.015);
+    sonando = n;
+  }
+
+  function sinteNotaOff(n) {
+    if (!ctx) return;
+    // Pequeña espera: el Arduino manda Note Off + Note On al cambiar de nota; así queda legato.
+    clearTimeout(releaseTimer);
+    releaseTimer = setTimeout(() => {
+      const now = ctx.currentTime;
+      env.gain.cancelScheduledValues(now);
+      env.gain.setTargetAtTime(0, now, 0.05);
+      sonando = null;
+    }, 70);
+  }
+
+  /* ---------- Manejo central de mensajes MIDI ---------- */
+  let salida = null;
+  let notaActual = null;
+  let vstMode = false;
+  let canal = 0;
+
+  function manejar(estadoByte, d1, d2, fuente) {
+    const tipo = estadoByte & 0xF0;
+    let esOn = tipo === 0x90 && d2 > 0;
+    let esOff = tipo === 0x80 || (tipo === 0x90 && d2 === 0);
+    if (!esOn && !esOff) return;
+
+    if (esOn) {
+      notaActual = d1;
+      setActiva(rungs.has(d1) ? d1 : null);
+      if (!rungs.has(d1)) {
+        // Nota fuera de la escala: se muestra igual
+        const big = $('bigNote');
+        big.classList.remove('off');
+        const m = nombre(d1).match(/^([A-G]#?)(-?\d+)$/);
+        big.innerHTML = `${m[1]}<small>${m[2]}</small>`;
+        $('midiNum').textContent = d1;
+        $('freqNum').textContent = frecuencia(d1).toFixed(1) + ' Hz';
+      }
+      if (!vstMode) sinteNotaOn(d1, d2);
+      log(`Note On ${nombre(d1)} · vel ${d2}`, fuente);
+    } else {
+      if (notaActual === d1) { notaActual = null; setActiva(null); }
+      if (!vstMode) sinteNotaOff(d1);
+      log(`Note Off ${nombre(d1)}`, fuente);
+    }
+    if (salida) {
+      try { salida.send([(esOn ? 0x90 : 0x80) | canal, d1, esOn ? d2 : 0]); } catch (e) { /* ignorar */ }
+    }
+  }
+
+  /* ---------- Web Serial (Arduino directo) ---------- */
+  let puerto = null, lector = null, leyendo = false;
+
+  async function conectarSerial() {
+    mensaje('');
+    if (!('serial' in navigator)) {
+      mensaje('Tu navegador no soporta Web Serial. Usá Chrome o Edge en una computadora, o conectá por Hairless + loopMIDI y elegí la entrada MIDI.');
+      return;
+    }
+    iniciarAudio();
+    try {
+      puerto = await navigator.serial.requestPort();
+      await puerto.open({ baudRate: 115200 });
+    } catch (e) {
+      if (e.name !== 'NotFoundError') mensaje('No se pudo abrir el puerto. Cerrá Hairless y el monitor serie del IDE, y probá de nuevo.');
+      puerto = null;
+      return;
+    }
+    $('btnSerial').disabled = true;
+    $('btnSerialOff').disabled = false;
+    estado('wait', 'Calibrando… no pongas la mano 2 s');
+    setTimeout(() => { if (puerto) estado('on', 'Arduino conectado'); }, 2200);
+    leerSerial();
+  }
+
+  async function leerSerial() {
+    leyendo = true;
+    let st = 0, d1 = null; // parser de MIDI crudo
+    while (puerto && puerto.readable && leyendo) {
+      lector = puerto.readable.getReader();
+      try {
+        while (true) {
+          const { value, done } = await lector.read();
+          if (done) break;
+          for (const b of value) {
+            if (b & 0x80) { st = b; d1 = null; }
+            else if (st) {
+              if (d1 === null) d1 = b;
+              else { manejar(st, d1, b, 'USB'); d1 = null; }
+            }
+          }
+        }
+      } catch (e) {
+        if (leyendo) mensaje('Se perdió la conexión con el Arduino.');
+      } finally {
+        lector.releaseLock();
+      }
+      break;
+    }
+    await desconectarSerial(true);
+  }
+
+  async function desconectarSerial(yaTerminado) {
+    leyendo = false;
+    try { if (lector && !yaTerminado) await lector.cancel(); } catch (e) {}
+    try { if (puerto) await puerto.close(); } catch (e) {}
+    puerto = null; lector = null;
+    $('btnSerial').disabled = false;
+    $('btnSerialOff').disabled = true;
+    estado('off', 'Sin conexión');
+    notaActual = null; setActiva(null); sinteNotaOff();
+  }
+
+  $('btnSerial').addEventListener('click', conectarSerial);
+  $('btnSerialOff').addEventListener('click', () => desconectarSerial(false));
+
+  /* ---------- Web MIDI (Hairless + loopMIDI, o cualquier puerto) ---------- */
+  let midi = null;
+  async function iniciarMIDI() {
+    if (!navigator.requestMIDIAccess) {
+      $('midiIn').disabled = true; $('midiOut').disabled = true;
+      return;
+    }
+    try { midi = await navigator.requestMIDIAccess(); } catch (e) { return; }
+    refrescarPuertos();
+    midi.onstatechange = refrescarPuertos;
+  }
+
+  function refrescarPuertos() {
+    const inSel = $('midiIn'), outSel = $('midiOut');
+    const prevIn = inSel.value, prevOut = outSel.value;
+    inSel.innerHTML = '<option value="">Ninguna</option>';
+    outSel.innerHTML = '<option value="">Ninguna</option>';
+    midi.inputs.forEach(p => inSel.add(new Option(p.name, p.id)));
+    midi.outputs.forEach(p => outSel.add(new Option(p.name, p.id)));
+    inSel.value = [...inSel.options].some(o => o.value === prevIn) ? prevIn : '';
+    outSel.value = [...outSel.options].some(o => o.value === prevOut) ? prevOut : '';
+    elegirEntrada(); elegirSalida();
+  }
+
+  function elegirEntrada() {
+    if (!midi) return;
+    midi.inputs.forEach(p => { p.onmidimessage = null; });
+    const id = $('midiIn').value;
+    if (!id) return;
+    iniciarAudio();
+    const p = midi.inputs.get(id);
+    if (!p) return;
+    p.onmidimessage = e => {
+      const [s, a, b] = e.data;
+      manejar(s, a, b ?? 0, 'MIDI');
+    };
+    estado('on', 'Entrada MIDI: ' + p.name);
+  }
+
+  function elegirSalida() {
+    todasApagadas();
+    salida = midi && $('midiOut').value ? midi.outputs.get($('midiOut').value) : null;
+    actualizarVst();
+  }
+
+  function todasApagadas() {
+    if (salida) { try { salida.send([0xB0 | canal, 123, 0]); } catch (e) {} }
+  }
+
+  function actualizarVst() {
+    const el = $('vstState');
+    let txt, ok = 0;
+    if (!navigator.requestMIDIAccess) {
+      txt = 'Este navegador no soporta MIDI de salida. Usá Chrome o Edge.';
+    } else if (vstMode && !salida) {
+      txt = 'Modo VST activo, pero falta elegir un puerto. Ahora no suena nada.';
+    } else if (vstMode && salida) {
+      txt = 'Modo VST activo: las notas van a «' + salida.name + '» por el canal ' + (canal + 1) + '. La página está en silencio.'; ok = 1;
+    } else if (salida) {
+      txt = 'Mandando a «' + salida.name + '» (canal ' + (canal + 1) + ') y sonando también acá. Activá Modo VST para silenciar la página.'; ok = 1;
+    } else {
+      txt = 'Sin salida. Elegí un puerto para mandar las notas a un VST o a tu DAW.';
+    }
+    el.textContent = txt;
+    el.dataset.ok = ok;
+  }
+
+  for (let i = 1; i <= 16; i++) $('midiCh').add(new Option(i, i - 1));
+  $('midiCh').addEventListener('change', () => {
+    todasApagadas();
+    canal = +$('midiCh').value;
+    actualizarVst();
+  });
+  $('vstMode').addEventListener('change', () => {
+    vstMode = $('vstMode').checked;
+    if (vstMode) { iniciarAudio(); sinteNotaOff(); }
+    actualizarVst();
+  });
+  $('btnTest').addEventListener('click', () => {
+    iniciarAudio();
+    manejar(0x90, 60, 100, 'prueba');
+    setTimeout(() => manejar(0x80, 60, 0, 'prueba'), 500);
+  });
+  actualizarVst();
+
+  $('midiIn').addEventListener('change', () => {
+    elegirEntrada();
+    if (!$('midiIn').value && !puerto) estado('off', 'Sin conexión');
+  });
+  $('midiOut').addEventListener('change', elegirSalida);
+
+  /* ---------- Tocar con el mouse / dedo ---------- */
+  let punteroActivo = false, notaPuntero = null;
+  function notaDesdePunto(x, y) {
+    const el = document.elementFromPoint(x, y);
+    const r = el && el.closest ? el.closest('.rung') : null;
+    return r ? +r.dataset.note : null;
+  }
+  function moverPuntero(e) {
+    const n = notaDesdePunto(e.clientX, e.clientY);
+    if (n === notaPuntero) return;
+    if (notaPuntero != null) manejar(0x80, notaPuntero, 0, 'pantalla');
+    notaPuntero = n;
+    if (n != null) manejar(0x90, n, 100, 'pantalla');
+  }
+  ladder.addEventListener('pointerdown', e => {
+    iniciarAudio();
+    punteroActivo = true;
+    ladder.setPointerCapture(e.pointerId);
+    moverPuntero(e);
+  });
+  ladder.addEventListener('pointermove', e => { if (punteroActivo) moverPuntero(e); });
+  const soltar = () => {
+    if (!punteroActivo) return;
+    punteroActivo = false;
+    if (notaPuntero != null) manejar(0x80, notaPuntero, 0, 'pantalla');
+    notaPuntero = null;
+  };
+  ladder.addEventListener('pointerup', soltar);
+  ladder.addEventListener('pointercancel', soltar);
+
+  // Teclado: Enter / espacio sobre un escalón
+  ladder.addEventListener('keydown', e => {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.classList.contains('rung')) {
+      e.preventDefault();
+      iniciarAudio();
+      const n = +e.target.dataset.note;
+      if (!e.repeat) manejar(0x90, n, 100, 'teclado');
+    }
+  });
+  ladder.addEventListener('keyup', e => {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.classList.contains('rung')) {
+      manejar(0x80, +e.target.dataset.note, 0, 'teclado');
+    }
+  });
+
+  /* ---------- Controles de sonido ---------- */
+  document.querySelectorAll('#wave button').forEach(b => {
+    b.addEventListener('click', () => {
+      onda = b.dataset.w;
+      document.querySelectorAll('#wave button').forEach(x => x.setAttribute('aria-pressed', x === b));
+      if (osc) osc.type = onda;
+    });
+  });
+  const sliders = [
+    ['vol', v => v], ['glide', v => v + ' ms'], ['tone', v => v], ['echo', v => v]
+  ];
+  sliders.forEach(([id, fmt]) => {
+    const el = $(id), out = $(id + 'O');
+    const act = () => { out.textContent = fmt(el.value); aplicarAjustes(); };
+    el.addEventListener('input', act);
+  });
+  $('btnMute').addEventListener('click', () => {
+    silenciado = !silenciado;
+    $('btnMute').setAttribute('aria-pressed', silenciado);
+    $('btnMute').textContent = silenciado ? 'Activar sonido' : 'Silenciar';
+    iniciarAudio();
+    aplicarAjustes();
+  });
+
+  /* ---------- Osciloscopio ---------- */
+  const canvas = $('scope');
+  const g = canvas.getContext('2d');
+  function dibujar() {
+    requestAnimationFrame(dibujar);
+    if (!analyser) return;
+    const w = canvas.width, h = canvas.height;
+    const data = new Uint8Array(analyser.fftSize);
+    analyser.getByteTimeDomainData(data);
+    g.clearRect(0, 0, w, h);
+    g.lineWidth = 3; g.lineJoin = 'round';
+    g.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#1f6bff';
+    g.beginPath();
+    const paso = w / 512;
+    for (let i = 0; i < 512; i++) {
+      const y = (data[i] / 255) * h;
+      i ? g.lineTo(i * paso, y) : g.moveTo(0, y);
+    }
+    g.stroke();
+  }
+
+  iniciarMIDI();
+  window.addEventListener('pointerdown', () => { if (ctx && ctx.state === 'suspended') ctx.resume(); }, { once: false });
+})();
+</script>
+</body>
+</html>
