@@ -31,6 +31,8 @@ https://github.com/user-attachments/assets/a4dfa582-477d-4ec3-9fe2-2a03032735d8
 
 
 ## Technologies
+<img width="1286" height="1600" alt="WhatsApp Image 2026-11-15 at 3 52 52 PM" src="https://github.com/user-attachments/assets/e88112ce-e88e-41ab-9370-2e017fbe8be2" />
+
 
 - HTML5
 - CSS3
