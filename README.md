@@ -9,10 +9,8 @@ The project transforms hand movements into musical notes using an HC-SR04 ultras
 
 ## Features
 
-
-https://github.com/user-attachments/assets/a175158e-6275-43f4-ad0b-30cae132141c
-
-
+https://github.com/user-attachments/assets/a4dfa582-477d-4ec3-9fe2-2a03032735d8
+ 
 
 - **Touchless control:** Generate musical notes through hand movements.
 - **Arduino USB connection:** Direct serial communication using Web Serial API.
