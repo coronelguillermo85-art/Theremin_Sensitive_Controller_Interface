@@ -1,4 +1,4 @@
-# Sensitive Theremin MIDI Controller
+# Sensitive Theremin MIDI Controller Interface
 
 ### Tocá música sin tocar nada.
 https://sensitive-theremin-controller-inter.vercel.app/
